@@ -25,6 +25,7 @@ const REGEX_STR: &str = r"^(-?[\w\.]*)\.\.(=?)(-?[\w\.]*)$";
 
 static REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(REGEX_STR).expect("Could not compile regex"));
 
+/// Represents a range with start and end bounds that can be dynamic.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DynamicRange<T> {
     start: Bound<T>,
@@ -34,10 +35,30 @@ pub struct DynamicRange<T> {
 impl<T: Copy> Copy for DynamicRange<T> {}
 
 impl<T> DynamicRange<T> {
+    /// Creates a new `DynamicRange` with the provided start and end bounds.
+    ///
+    /// # Parameters
+    ///
+    /// - `start`: The start bound of the range.
+    /// - `end`: The end bound of the range.
+    ///
+    /// # Returns
+    ///
+    /// A new `DynamicRange` with the specified bounds.
     pub const fn new(start: Bound<T>, end: Bound<T>) -> Self {
         Self { start, end }
     }
 
+    /// Creates a new `DynamicRange` with inclusive start and exclusive end bounds.
+    ///
+    /// # Parameters
+    ///
+    /// - `start`: The inclusive start value.
+    /// - `end`: The exclusive end value.
+    ///
+    /// # Returns
+    ///
+    /// A new `DynamicRange` with the specified bounds.
     pub const fn range(start: T, end: T) -> Self {
         Self {
             start: Bound::Included(start),
@@ -45,6 +66,16 @@ impl<T> DynamicRange<T> {
         }
     }
 
+    /// Creates a new `DynamicRange` with inclusive start and inclusive end bounds.
+    ///
+    /// # Parameters
+    ///
+    /// - `start`: The inclusive start value.
+    /// - `end`: The inclusive end value.
+    ///
+    /// # Returns
+    ///
+    /// A new `DynamicRange` with the specified bounds.
     pub const fn range_inclusive(start: T, end: T) -> Self {
         Self {
             start: Bound::Included(start),
@@ -52,6 +83,15 @@ impl<T> DynamicRange<T> {
         }
     }
 
+    /// Creates a new `DynamicRange` that includes all values up to, but not including, the specified end.
+    ///
+    /// # Parameters
+    ///
+    /// - `end`: The exclusive end value.
+    ///
+    /// # Returns
+    ///
+    /// A new `DynamicRange` that ends before the specified value.
     pub const fn range_to(end: T) -> Self {
         Self {
             start: Bound::Unbounded,
@@ -59,6 +99,15 @@ impl<T> DynamicRange<T> {
         }
     }
 
+    /// Creates a new `DynamicRange` that includes all values up to and including the specified end.
+    ///
+    /// # Parameters
+    ///
+    /// - `end`: The inclusive end value.
+    ///
+    /// # Returns
+    ///
+    /// A new `DynamicRange` that ends at the specified value.
     pub const fn range_to_inclusive(end: T) -> Self {
         Self {
             start: Bound::Unbounded,
@@ -66,6 +115,15 @@ impl<T> DynamicRange<T> {
         }
     }
 
+    /// Creates a new `DynamicRange` that starts from the specified value and includes all subsequent values.
+    ///
+    /// # Parameters
+    ///
+    /// - `start`: The inclusive start value.
+    ///
+    /// # Returns
+    ///
+    /// A new `DynamicRange` that starts from the specified value.
     pub const fn range_from(start: T) -> Self {
         Self {
             start: Bound::Included(start),
@@ -73,6 +131,11 @@ impl<T> DynamicRange<T> {
         }
     }
 
+    /// Creates a new `DynamicRange` that includes all possible values.
+    ///
+    /// # Returns
+    ///
+    /// A new `DynamicRange` that is unbounded at both the start and end.
     pub const fn range_full() -> Self {
         Self {
             start: Bound::Unbounded,
