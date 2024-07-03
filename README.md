@@ -5,7 +5,7 @@ A Rust library for handling various types of ranges dynamically.
 ## Usage
 
 ```console
-cargo add --git "https://github.com/T1mVo/dynamic_range" --tag v0.1.0
+cargo add --git "https://github.com/T1mVo/dynamic_range" --tag v0.2.0
 ```
 
 ## Example

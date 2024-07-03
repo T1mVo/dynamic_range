@@ -2,6 +2,7 @@
 
 use std::{
     any::type_name,
+    iter::FusedIterator,
     ops::{
         Bound, Index, IndexMut, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo,
         RangeToInclusive,
@@ -24,14 +25,105 @@ const REGEX_STR: &str = r"^(-?[\w\.]*)\.\.(=?)(-?[\w\.]*)$";
 
 static REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(REGEX_STR).expect("Could not compile regex"));
 
-#[derive(PartialEq, Eq, Clone, Debug)]
-pub enum DynamicRange<T> {
-    Range(Range<T>),
-    RangeFrom(RangeFrom<T>),
-    RangeFull,
-    RangeInclusive(RangeInclusive<T>),
-    RangeTo(RangeTo<T>),
-    RangeToInclusive(RangeToInclusive<T>),
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct DynamicRange<T> {
+    start: Bound<T>,
+    end: Bound<T>,
+}
+
+impl<T: Copy> Copy for DynamicRange<T> {}
+
+impl<T> DynamicRange<T> {
+    pub const fn new(start: Bound<T>, end: Bound<T>) -> Self {
+        Self { start, end }
+    }
+
+    pub const fn range(start: T, end: T) -> Self {
+        Self {
+            start: Bound::Included(start),
+            end: Bound::Excluded(end),
+        }
+    }
+
+    pub const fn range_inclusive(start: T, end: T) -> Self {
+        Self {
+            start: Bound::Included(start),
+            end: Bound::Included(end),
+        }
+    }
+
+    pub const fn range_to(end: T) -> Self {
+        Self {
+            start: Bound::Unbounded,
+            end: Bound::Excluded(end),
+        }
+    }
+
+    pub const fn range_to_inclusive(end: T) -> Self {
+        Self {
+            start: Bound::Unbounded,
+            end: Bound::Included(end),
+        }
+    }
+
+    pub const fn range_from(start: T) -> Self {
+        Self {
+            start: Bound::Included(start),
+            end: Bound::Unbounded,
+        }
+    }
+
+    pub const fn range_full() -> Self {
+        Self {
+            start: Bound::Unbounded,
+            end: Bound::Unbounded,
+        }
+    }
+}
+
+impl<T> From<Range<T>> for DynamicRange<T> {
+    fn from(value: Range<T>) -> Self {
+        Self::range(value.start, value.end)
+    }
+}
+
+impl<T> From<RangeFrom<T>> for DynamicRange<T> {
+    fn from(value: RangeFrom<T>) -> Self {
+        Self::range_from(value.start)
+    }
+}
+
+impl<T> From<RangeFull> for DynamicRange<T> {
+    fn from(_: RangeFull) -> Self {
+        Self::range_full()
+    }
+}
+
+impl<T> From<RangeTo<T>> for DynamicRange<T> {
+    fn from(value: RangeTo<T>) -> Self {
+        Self::range_to(value.end)
+    }
+}
+
+impl<T: Clone> From<RangeInclusive<T>> for DynamicRange<T> {
+    fn from(value: RangeInclusive<T>) -> Self {
+        let end = value.end().clone();
+
+        Self::range_to_inclusive(end)
+    }
+}
+
+impl<T> From<RangeToInclusive<T>> for DynamicRange<T> {
+    fn from(value: RangeToInclusive<T>) -> Self {
+        Self::range_to_inclusive(value.end)
+    }
+}
+
+fn try_parse_value<T: FromStr>(value: &str) -> error::Result<T> {
+    T::from_str(value).map_err(|_| Error::ParseError {
+        value: value.to_string(),
+        type_name: type_name::<T>().to_string(),
+    })
 }
 
 impl<T: FromStr> FromStr for DynamicRange<T> {
@@ -48,42 +140,34 @@ impl<T: FromStr> FromStr for DynamicRange<T> {
             (true, true, true) => {
                 let start = try_parse_value(start)?;
                 let end = try_parse_value(end)?;
-                Ok(Self::RangeInclusive(RangeInclusive::<T>::new(start, end)))
+                Ok(Self::range_inclusive(start, end))
             }
             (true, false, true) => {
                 let end = try_parse_value(end)?;
-                Ok(Self::RangeToInclusive(RangeToInclusive::<T> { end }))
+                Ok(Self::range_to_inclusive(end))
             }
-            (true, true, false) => {
-                let start = try_parse_value(start)?;
-                Ok(Self::RangeFrom(RangeFrom::<T> { start }))
-            }
+            (true, true, false) => Err(Error::InvalidRangeError {
+                range: s.to_string(),
+            }),
             (true, false, false) => Err(Error::InvalidRangeError {
                 range: s.to_string(),
             }),
             (false, true, true) => {
                 let start = try_parse_value(start)?;
                 let end = try_parse_value(end)?;
-                Ok(Self::Range(Range::<T> { start, end }))
+                Ok(Self::range(start, end))
             }
             (false, false, true) => {
                 let end = try_parse_value(end)?;
-                Ok(Self::RangeTo(RangeTo::<T> { end }))
+                Ok(Self::range_to(end))
             }
             (false, true, false) => {
                 let start = try_parse_value(start)?;
-                Ok(Self::RangeFrom(RangeFrom::<T> { start }))
+                Ok(Self::range_from(start))
             }
-            (false, false, false) => Ok(Self::RangeFull),
+            (false, false, false) => Ok(Self::range_full()),
         }
     }
-}
-
-fn try_parse_value<T: FromStr>(value: &str) -> error::Result<T> {
-    T::from_str(value).map_err(|_| Error::ParseError {
-        value: value.to_string(),
-        type_name: type_name::<T>().to_string(),
-    })
 }
 
 impl<T: FromStr> TryFrom<String> for DynamicRange<T> {
@@ -110,97 +194,23 @@ impl<T: FromStr> TryFrom<&str> for DynamicRange<T> {
     }
 }
 
-impl<T> From<Range<T>> for DynamicRange<T> {
-    fn from(value: Range<T>) -> Self {
-        Self::Range(value)
-    }
-}
-
-impl<T> From<RangeFrom<T>> for DynamicRange<T> {
-    fn from(value: RangeFrom<T>) -> Self {
-        Self::RangeFrom(value)
-    }
-}
-
-impl<T> From<RangeFull> for DynamicRange<T> {
-    fn from(_: RangeFull) -> Self {
-        Self::RangeFull
-    }
-}
-
-impl<T> From<RangeTo<T>> for DynamicRange<T> {
-    fn from(value: RangeTo<T>) -> Self {
-        Self::RangeTo(value)
-    }
-}
-
-impl<T> From<RangeInclusive<T>> for DynamicRange<T> {
-    fn from(value: RangeInclusive<T>) -> Self {
-        Self::RangeInclusive(value)
-    }
-}
-
-impl<T> From<RangeToInclusive<T>> for DynamicRange<T> {
-    fn from(value: RangeToInclusive<T>) -> Self {
-        Self::RangeToInclusive(value)
-    }
-}
-
 impl<T> RangeBounds<T> for DynamicRange<T> {
     fn start_bound(&self) -> Bound<&T> {
-        match self {
-            DynamicRange::Range(r) => r.start_bound(),
-            DynamicRange::RangeFrom(r) => r.start_bound(),
-            DynamicRange::RangeFull => Bound::Unbounded,
-            DynamicRange::RangeInclusive(r) => r.start_bound(),
-            DynamicRange::RangeTo(r) => r.start_bound(),
-            DynamicRange::RangeToInclusive(r) => r.start_bound(),
-        }
+        self.start.as_ref()
     }
 
     fn end_bound(&self) -> Bound<&T> {
-        match self {
-            DynamicRange::Range(r) => r.end_bound(),
-            DynamicRange::RangeFrom(r) => r.end_bound(),
-            DynamicRange::RangeFull => Bound::Unbounded,
-            DynamicRange::RangeInclusive(r) => r.end_bound(),
-            DynamicRange::RangeTo(r) => r.end_bound(),
-            DynamicRange::RangeToInclusive(r) => r.end_bound(),
-        }
+        self.end.as_ref()
     }
 }
 
 impl<T> RangeBounds<T> for DynamicRange<&T> {
     fn start_bound(&self) -> Bound<&T> {
-        match self {
-            DynamicRange::Range(r) => r.start_bound(),
-            DynamicRange::RangeFrom(r) => r.start_bound(),
-            DynamicRange::RangeFull => Bound::Unbounded,
-            DynamicRange::RangeInclusive(r) => r.start_bound(),
-            DynamicRange::RangeTo(r) => r.start_bound(),
-            DynamicRange::RangeToInclusive(r) => r.start_bound(),
-        }
+        self.start
     }
 
     fn end_bound(&self) -> Bound<&T> {
-        match self {
-            DynamicRange::Range(r) => r.end_bound(),
-            DynamicRange::RangeFrom(r) => r.end_bound(),
-            DynamicRange::RangeFull => Bound::Unbounded,
-            DynamicRange::RangeInclusive(r) => r.end_bound(),
-            DynamicRange::RangeTo(r) => r.end_bound(),
-            DynamicRange::RangeToInclusive(r) => r.end_bound(),
-        }
-    }
-}
-
-impl<T: PartialOrd<T>> DynamicRange<T> {
-    pub fn contains<U>(&self, item: &U) -> bool
-    where
-        T: PartialOrd<U>,
-        U: ?Sized + PartialOrd<T>,
-    {
-        <Self as RangeBounds<T>>::contains(self, item)
+        self.end
     }
 }
 
@@ -208,98 +218,107 @@ impl<T> Index<DynamicRange<usize>> for [T] {
     type Output = [T];
 
     fn index(&self, index: DynamicRange<usize>) -> &Self::Output {
-        match index {
-            DynamicRange::Range(r) => &self[r],
-            DynamicRange::RangeFrom(r) => &self[r],
-            DynamicRange::RangeFull => self,
-            DynamicRange::RangeTo(r) => &self[r],
-            DynamicRange::RangeInclusive(r) => &self[r],
-            DynamicRange::RangeToInclusive(r) => &self[r],
-        }
+        &self[(index.start, index.end)]
     }
 }
 
 impl<T> IndexMut<DynamicRange<usize>> for [T] {
     fn index_mut(&mut self, index: DynamicRange<usize>) -> &mut Self::Output {
-        match index {
-            DynamicRange::Range(r) => &mut self[r],
-            DynamicRange::RangeFrom(r) => &mut self[r],
-            DynamicRange::RangeFull => self,
-            DynamicRange::RangeTo(r) => &mut self[r],
-            DynamicRange::RangeInclusive(r) => &mut self[r],
-            DynamicRange::RangeToInclusive(r) => &mut self[r],
-        }
+        &mut self[(index.start, index.end)]
     }
 }
 
-impl<T> IntoIterator for DynamicRange<T>
-where
-    T: PrimInt,
-{
-    type Item = T;
+impl Index<DynamicRange<usize>> for str {
+    type Output = str;
 
+    fn index(&self, index: DynamicRange<usize>) -> &Self::Output {
+        &self[(index.start, index.end)]
+    }
+}
+
+impl IndexMut<DynamicRange<usize>> for str {
+    fn index_mut(&mut self, index: DynamicRange<usize>) -> &mut Self::Output {
+        &mut self[(index.start, index.end)]
+    }
+}
+
+impl<T: PrimInt> IntoIterator for DynamicRange<T> {
+    type Item = T;
     type IntoIter = DynamicRangeIterator<T>;
 
     fn into_iter(self) -> Self::IntoIter {
-        match self {
-            DynamicRange::Range(r) => DynamicRangeIterator {
-                start: r.start,
-                end: r.end,
-                inclusive: false,
-            },
-            DynamicRange::RangeFrom(r) => DynamicRangeIterator {
-                start: r.start,
-                end: T::max_value(),
-                inclusive: false,
-            },
-            DynamicRange::RangeFull => DynamicRangeIterator {
-                start: T::min_value(),
-                end: T::max_value(),
-                inclusive: true,
-            },
-            DynamicRange::RangeInclusive(r) => DynamicRangeIterator {
-                start: *r.start(),
-                end: *r.end(),
-                inclusive: true,
-            },
-            DynamicRange::RangeTo(r) => DynamicRangeIterator {
-                start: T::min_value(),
-                end: r.end,
-                inclusive: false,
-            },
-            DynamicRange::RangeToInclusive(r) => DynamicRangeIterator {
-                start: T::min_value(),
-                end: r.end,
-                inclusive: true,
-            },
-        }
+        DynamicRangeIterator::new(self.start, self.end)
     }
 }
 
 pub struct DynamicRangeIterator<T> {
-    start: T,
-    end: T,
-    inclusive: bool,
+    index: Option<T>,
+    start: Bound<T>,
+    end: Bound<T>,
+    exhausted: Exhausted,
 }
 
-impl<T> Iterator for DynamicRangeIterator<T>
+impl<T: PrimInt> DynamicRangeIterator<T> {
+    fn start(&self) -> Option<T> {
+        match self.start {
+            Bound::Included(start) => Some(start),
+            Bound::Excluded(start) => start.checked_add(&T::one()),
+            Bound::Unbounded => Some(T::min_value()),
+        }
+    }
+
+    fn end(&self) -> Option<T> {
+        match self.end {
+            Bound::Included(end) => Some(end),
+            Bound::Excluded(end) => end.checked_sub(&T::one()),
+            Bound::Unbounded => Some(T::max_value()),
+        }
+    }
+}
+
+#[derive(PartialEq, Eq)]
+enum Exhausted {
+    None,
+    Upper,
+    Lower,
+}
+
+impl<T> DynamicRangeIterator<T>
 where
     T: PrimInt,
 {
+    pub fn new(start: Bound<T>, end: Bound<T>) -> Self {
+        Self {
+            index: None,
+            start,
+            end,
+            exhausted: Exhausted::None,
+        }
+    }
+}
+
+impl<T: PrimInt> Iterator for DynamicRangeIterator<T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.inclusive {
-            if self.start <= self.end {
-                let index = self.start;
-                self.start = self.start + T::one();
-                Some(index)
-            } else {
-                None
-            }
-        } else if self.start < self.end {
-            let index = self.start;
-            self.start = self.start + T::one();
+        if self.exhausted == Exhausted::Upper {
+            return None;
+        }
+
+        let mut index = self.index.or_else(|| self.start())?;
+        let start = self.start()?;
+        let end = self.end()?;
+
+        if index < start {
+            index = start;
+        }
+
+        if index <= end {
+            match index.checked_add(&T::one()) {
+                Some(index) => self.index = Some(index),
+                None => self.exhausted = Exhausted::Upper,
+            };
+
             Some(index)
         } else {
             None
@@ -307,133 +326,53 @@ where
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::{
-        collections::HashMap,
-        fmt::{Debug, Display},
-    };
+impl<T: PrimInt> DoubleEndedIterator for DynamicRangeIterator<T> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.exhausted == Exhausted::Lower {
+            return None;
+        }
 
-    use num_traits::{Bounded, PrimInt};
+        let mut index = self.index.or_else(|| self.end())?;
+        let start = self.start()?;
+        let end = self.end()?;
 
-    use super::*;
+        if index > end {
+            index = end;
+        }
 
-    use error::Result;
+        if index >= start {
+            match index.checked_sub(&T::one()) {
+                Some(index) => self.index = Some(index),
+                None => self.exhausted = Exhausted::Lower,
+            };
 
-    fn num_values<T: Bounded + Display>() -> HashMap<String, Result<DynamicRange<T>>> {
-        HashMap::from([
-            // Range
-            (
-                format!("{}..{}", T::min_value(), T::max_value()),
-                Ok(DynamicRange::Range(T::min_value()..T::max_value())),
-            ),
-            // RangeFrom
-            (
-                format!("{}..", T::min_value()),
-                Ok(DynamicRange::RangeFrom(T::min_value()..)),
-            ),
-            // RangeFull
-            (String::from(".."), Ok(DynamicRange::RangeFull)),
-            // RangeInclusive
-            (
-                format!("{}..={}", T::min_value(), T::max_value()),
-                Ok(DynamicRange::RangeInclusive(
-                    T::min_value()..=T::max_value(),
-                )),
-            ),
-            // RangeTo
-            (
-                format!("..{}", T::max_value()),
-                Ok(DynamicRange::RangeTo(..T::max_value())),
-            ),
-            // RangeToInclusive
-            (
-                format!("..={}", T::max_value()),
-                Ok(DynamicRange::RangeToInclusive(..=T::max_value())),
-            ),
-            // End overflow ParsingError
-            (
-                format!("{}..{}1", T::min_value(), T::max_value()),
-                Err(Error::ParseError {
-                    value: format!("{}1", T::max_value()),
-                    type_name: type_name::<T>().to_string(),
-                }),
-            ),
-            // Start overflow ParsingError
-            (
-                format!("{}1..{}", T::max_value(), T::min_value()),
-                Err(Error::ParseError {
-                    value: format!("{}1", T::max_value()),
-                    type_name: type_name::<T>().to_string(),
-                }),
-            ),
-            // Invalid InclusiveRange
-            (
-                String::from("..="),
-                Err(Error::InvalidRangeError {
-                    range: String::from("..="),
-                }),
-            ),
-        ])
-    }
-
-    fn test<T: PrimInt + Display + FromStr + Debug>() {
-        let values = num_values::<T>();
-
-        for (str, expected) in values {
-            let actual = DynamicRange::<T>::from_str(&str);
-
-            assert_eq!(expected, actual);
+            Some(index)
+        } else {
+            None
         }
     }
+}
 
-    #[test]
-    fn i128() {
-        test::<i128>();
-    }
+impl<T: PrimInt> ExactSizeIterator for DynamicRangeIterator<T> {
+    fn len(&self) -> usize {
+        let start = match self.start() {
+            // Cast should be impossible to fail
+            Some(start) => start.to_usize().expect("Could not cast to usize"),
+            None => return 0,
+        };
 
-    #[test]
-    fn i64() {
-        test::<i64>();
-    }
+        let end = match self.end() {
+            // Cast should be impossible to fail
+            Some(end) => end.to_usize().expect("Could not cast to usize"),
+            None => return 0,
+        };
 
-    #[test]
-    fn i32() {
-        test::<i32>();
-    }
-
-    #[test]
-    fn i16() {
-        test::<i16>();
-    }
-
-    #[test]
-    fn i8() {
-        test::<i8>();
-    }
-
-    #[test]
-    fn u128() {
-        test::<u128>();
-    }
-
-    #[test]
-    fn u64() {
-        test::<u64>();
-    }
-
-    #[test]
-    fn u32() {
-        test::<u32>();
-    }
-
-    #[test]
-    fn u16() {
-        test::<u16>();
-    }
-
-    #[test]
-    fn u8() {
-        test::<u8>();
+        // Add one to account for last number not being included
+        end - start + 1
     }
 }
+
+impl<T: PrimInt> FusedIterator for DynamicRangeIterator<T> {}
+
+#[cfg(test)]
+mod tests {}
