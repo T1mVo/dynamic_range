@@ -441,4 +441,198 @@ impl<T: PrimInt> ExactSizeIterator for DynamicRangeIterator<T> {
 impl<T: PrimInt> FusedIterator for DynamicRangeIterator<T> {}
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use super::*;
+    use std::{ops::Bound::*, str::FromStr};
+
+    #[test]
+    fn new() {
+        let range = DynamicRange::new(Included(1), Excluded(5));
+        assert_eq!(range, DynamicRange::range(1, 5));
+    }
+
+    #[test]
+    fn range() {
+        let range = DynamicRange::range(1, 5);
+        assert_eq!(range, DynamicRange::new(Included(1), Excluded(5)));
+    }
+
+    #[test]
+    fn range_inclusive() {
+        let range = DynamicRange::range_inclusive(1, 5);
+        assert_eq!(range, DynamicRange::new(Included(1), Included(5)));
+    }
+
+    #[test]
+    fn range_to() {
+        let range = DynamicRange::range_to(5);
+        assert_eq!(range, DynamicRange::new(Unbounded, Excluded(5)));
+    }
+
+    #[test]
+    fn range_to_inclusive() {
+        let range = DynamicRange::range_to_inclusive(5);
+        assert_eq!(range, DynamicRange::new(Unbounded, Included(5)));
+    }
+
+    #[test]
+    fn range_from() {
+        let range = DynamicRange::range_from(1);
+        assert_eq!(range, DynamicRange::new(Included(1), Unbounded));
+    }
+
+    #[test]
+    fn range_full() {
+        let range = DynamicRange::<u8>::range_full();
+        assert_eq!(range, DynamicRange::new(Unbounded, Unbounded));
+    }
+
+    #[test]
+    fn from_range() {
+        let std_range = 1..5;
+        let dynamic_range: DynamicRange<_> = std_range.into();
+        assert_eq!(dynamic_range, DynamicRange::range(1, 5));
+    }
+
+    #[test]
+    fn from_range_from() {
+        let std_range = 1..;
+        let dynamic_range: DynamicRange<_> = std_range.into();
+        assert_eq!(dynamic_range, DynamicRange::range_from(1));
+    }
+
+    #[test]
+    fn from_range_full() {
+        let std_range = ..;
+        let dynamic_range: DynamicRange<u8> = std_range.into();
+        assert_eq!(dynamic_range, DynamicRange::range_full());
+    }
+
+    #[test]
+    fn from_range_to() {
+        let std_range = ..5;
+        let dynamic_range: DynamicRange<_> = std_range.into();
+        assert_eq!(dynamic_range, DynamicRange::range_to(5));
+    }
+
+    #[test]
+    fn from_range_to_inclusive() {
+        let std_range = ..=5;
+        let dynamic_range: DynamicRange<_> = std_range.into();
+        assert_eq!(dynamic_range, DynamicRange::range_to_inclusive(5));
+    }
+
+    #[test]
+    fn from_range_inclusive() {
+        let std_range = 1..=5;
+        let dynamic_range: DynamicRange<_> = std_range.into();
+        assert_eq!(dynamic_range, DynamicRange::range_inclusive(1, 5));
+    }
+
+    #[test]
+    fn from_str() {
+        let range: DynamicRange<i32> = "1..5".parse().unwrap();
+        assert_eq!(range, DynamicRange::range(1, 5));
+
+        let range: DynamicRange<i32> = "1..=5".parse().unwrap();
+        assert_eq!(range, DynamicRange::range_inclusive(1, 5));
+
+        let range: DynamicRange<i32> = "..5".parse().unwrap();
+        assert_eq!(range, DynamicRange::range_to(5));
+
+        let range: DynamicRange<i32> = "..=5".parse().unwrap();
+        assert_eq!(range, DynamicRange::range_to_inclusive(5));
+
+        let range: DynamicRange<i32> = "1..".parse().unwrap();
+        assert_eq!(range, DynamicRange::range_from(1));
+
+        let range: DynamicRange<i32> = "..".parse().unwrap();
+        assert_eq!(range, DynamicRange::range_full());
+    }
+
+    #[test]
+    fn range_bounds() {
+        let range = DynamicRange::range(1, 5);
+        assert_eq!(range.start_bound(), Included(&1));
+        assert_eq!(range.end_bound(), Excluded(&5));
+    }
+
+    #[test]
+    fn index_slice() {
+        let array = [1, 2, 3, 4, 5];
+        let range = DynamicRange::range(1, 4);
+        assert_eq!(&array[range], &[2, 3, 4]);
+    }
+
+    #[test]
+    fn index_mut_slice() {
+        let mut array = [1, 2, 3, 4, 5];
+        let range = DynamicRange::range(1, 4);
+
+        {
+            let slice = &mut array[range];
+            slice[0] = 10;
+            slice[1] = 20;
+            slice[2] = 30;
+        }
+
+        assert_eq!(array, [1, 10, 20, 30, 5]);
+    }
+
+    #[test]
+    fn iterator() {
+        let range = DynamicRange::range(1, 5);
+        let elements: Vec<_> = range.into_iter().collect();
+        assert_eq!(elements, vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn double_ended_iterator() {
+        let range = DynamicRange::range(1, 5);
+        let mut iter = range.into_iter();
+        assert_eq!(iter.next_back(), Some(4));
+        assert_eq!(iter.next_back(), Some(3));
+        assert_eq!(iter.next_back(), Some(2));
+        assert_eq!(iter.next_back(), Some(1));
+        assert_eq!(iter.next_back(), None);
+    }
+
+    #[test]
+    fn exact_size_iterator() {
+        let range = DynamicRange::range(1, 5);
+        let iter = range.into_iter();
+        assert_eq!(iter.len(), 4); // 1 to 4 inclusive
+    }
+
+    #[test]
+    fn try_parse_value() {
+        let value: i32 = super::try_parse_value("123").unwrap();
+        assert_eq!(value, 123);
+    }
+
+    #[test]
+    fn dynamic_range_from_str_error() {
+        let range = DynamicRange::<i32>::from_str("abc..def");
+        assert!(range.is_err());
+
+        let range = DynamicRange::<i32>::from_str("1..=");
+        assert!(range.is_err());
+
+        let range = DynamicRange::<i32>::from_str("..=");
+        assert!(range.is_err());
+    }
+
+    #[test]
+    fn overflow() {
+        let range = DynamicRange::range(i32::MAX - 1, i32::MAX);
+        let elements: Vec<_> = range.into_iter().collect();
+        assert_eq!(elements, vec![i32::MAX - 1]);
+    }
+
+    #[test]
+    fn underflow() {
+        let range = DynamicRange::range(i32::MIN, i32::MIN + 1);
+        let elements: Vec<_> = range.into_iter().collect();
+        assert_eq!(elements, vec![i32::MIN]);
+    }
+}
