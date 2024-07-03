@@ -107,9 +107,10 @@ impl<T> From<RangeTo<T>> for DynamicRange<T> {
 
 impl<T: Clone> From<RangeInclusive<T>> for DynamicRange<T> {
     fn from(value: RangeInclusive<T>) -> Self {
+        let start = value.start().clone();
         let end = value.end().clone();
 
-        Self::range_to_inclusive(end)
+        Self::range_inclusive(start, end)
     }
 }
 
