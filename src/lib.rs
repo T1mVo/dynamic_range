@@ -137,36 +137,38 @@ impl<T: FromStr> FromStr for DynamicRange<T> {
 
         let (_, [start, inclusive, end]) = caps.extract();
 
-        match (!inclusive.is_empty(), !start.is_empty(), !end.is_empty()) {
-            (true, true, true) => {
-                let start = try_parse_value(start)?;
-                let end = try_parse_value(end)?;
-                Ok(Self::range_inclusive(start, end))
+        if inclusive.is_empty() {
+            match (!start.is_empty(), !end.is_empty()) {
+                (true, true) => {
+                    let start = try_parse_value(start)?;
+                    let end = try_parse_value(end)?;
+                    Ok(Self::range(start, end))
+                }
+                (false, true) => {
+                    let end = try_parse_value(end)?;
+                    Ok(Self::range_to(end))
+                }
+                (true, false) => {
+                    let start = try_parse_value(start)?;
+                    Ok(Self::range_from(start))
+                }
+                (false, false) => Ok(Self::range_full()),
             }
-            (true, false, true) => {
-                let end = try_parse_value(end)?;
-                Ok(Self::range_to_inclusive(end))
+        } else {
+            match (!start.is_empty(), !end.is_empty()) {
+                (true, true) => {
+                    let start = try_parse_value(start)?;
+                    let end = try_parse_value(end)?;
+                    Ok(Self::range_inclusive(start, end))
+                }
+                (false, true) => {
+                    let end = try_parse_value(end)?;
+                    Ok(Self::range_to_inclusive(end))
+                }
+                _ => Err(Error::InvalidRangeError {
+                    range: s.to_string(),
+                }),
             }
-            (true, true, false) => Err(Error::InvalidRangeError {
-                range: s.to_string(),
-            }),
-            (true, false, false) => Err(Error::InvalidRangeError {
-                range: s.to_string(),
-            }),
-            (false, true, true) => {
-                let start = try_parse_value(start)?;
-                let end = try_parse_value(end)?;
-                Ok(Self::range(start, end))
-            }
-            (false, false, true) => {
-                let end = try_parse_value(end)?;
-                Ok(Self::range_to(end))
-            }
-            (false, true, false) => {
-                let start = try_parse_value(start)?;
-                Ok(Self::range_from(start))
-            }
-            (false, false, false) => Ok(Self::range_full()),
         }
     }
 }
